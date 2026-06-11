@@ -1,10 +1,11 @@
 {
   "name": "cinecollab-stremio-addon",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Import CineCollab watchlists into Stremio / Nuvio as a catalog",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/parseConfig.test.js test/crypto.test.js test/crypto-nosecret.test.js test/extras.test.js test/builders.test.js test/handler.test.js"
   },
   "engines": {
     "node": ">=18"
