@@ -84,9 +84,6 @@ function configurePage(prefill) {
   button:hover{background:#7d70ff}
   button.sec{background:#262b38}
   button.sec:hover{background:#313748}
-  button.google{background:#fff;color:#222;display:flex;align-items:center;
-                justify-content:center;gap:8px}
-  button.google:hover{background:#f0f0f0}
   .hint{font-size:12px;color:#6b7280;margin:2px 0 8px}
   .out{margin-top:18px;display:none}
   a.btn{display:block;text-align:center;text-decoration:none}
@@ -148,13 +145,7 @@ function configurePage(prefill) {
     <input id="email" type="email" placeholder="Email" autocomplete="username">
     <input id="pass"  type="password" placeholder="Password" autocomplete="current-password" style="margin-top:6px">
     <p class="err" id="loginErr"></p>
-    <div class="row" style="margin-top:10px">
-      <button style="flex:1" onclick="doLogin()">Sign in with email</button>
-      <button class="google" style="flex:0 0 auto;width:auto;padding:11px 14px" onclick="doGoogle()">
-        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-        Google
-      </button>
-    </div>
+    <button style="margin-top:10px" onclick="doLogin()">Sign in with email</button>
   </div>
   <div id="accountLists" style="display:none">
     <p style="margin:0 0 8px;font-size:13px;color:#9aa3b2">Your watchlists — uncheck any to exclude:</p>
@@ -293,10 +284,6 @@ function doLogin(){
     })
     .catch(function(){errEl.textContent='Request failed.';errEl.style.display='block';});
 }
-function doGoogle(){
-  var cb=location.origin+'/auth/callback';
-  location.href=${JSON.stringify(supabaseUrl)}+'/auth/v1/authorize?provider=google&redirect_to='+encodeURIComponent(cb);
-}
 function showAccountLists(lists){
   var cl=document.getElementById('accountChecklist');
   cl.innerHTML='';
@@ -330,82 +317,6 @@ ${value ? 'gen();' : ''}
 </script></body></html>`;
 }
 
-// ---- Google OAuth callback page -----------------------------------------
-function callbackPage() {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CineCollab – Signing in…</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<style>
-  :root{color-scheme:dark}
-  body{font-family:Inter,system-ui,sans-serif;background:#0d0f14;color:#e8eaf0;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-  .card{background:#161922;border:1px solid #262b38;border-radius:16px;
-        padding:32px 36px;text-align:center;max-width:400px;width:90%}
-  .spinner{display:inline-block;width:32px;height:32px;border:3px solid #6d5efc;
-           border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  p{color:#9aa3b2;font-size:14px}
-  .err{color:#f87171}
-  code{word-break:break-all;background:#0e1118;padding:8px 10px;border-radius:8px;
-       display:block;font-size:12px;color:#a9b4ff;border:1px solid #262b38;margin-top:10px}
-  button{background:#6d5efc;color:#fff;border:0;border-radius:10px;padding:11px 18px;
-         font-size:14px;font-weight:600;cursor:pointer;margin-top:12px;width:100%}
-  button:hover{background:#7d70ff}
-</style></head><body>
-<div class="card">
-  <div class="spinner" id="spin"></div>
-  <p id="msg">Completing sign-in…</p>
-</div>
-<script>
-(function(){
-  // Supabase returns the session in the URL fragment after Google OAuth.
-  var hash=location.hash.replace(/^#/,'');
-  var params={};
-  hash.split('&').forEach(function(p){
-    var eq=p.indexOf('=');
-    if(eq>-1) params[decodeURIComponent(p.slice(0,eq))]=decodeURIComponent(p.slice(eq+1));
-  });
-  var rt=params.refresh_token;
-  if(!rt){
-    document.getElementById('spin').style.display='none';
-    document.getElementById('msg').className='err';
-    document.getElementById('msg').textContent='Sign-in failed: no token in redirect. Try again from the configure page.';
-    return;
-  }
-  fetch('/auth/google',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({refresh_token:rt})})
-    .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
-    .then(function(res){
-      document.getElementById('spin').style.display='none';
-      if(!res.ok){
-        document.getElementById('msg').className='err';
-        document.getElementById('msg').textContent=res.d.error||'Sign-in failed.';
-        return;
-      }
-      document.getElementById('msg').textContent='Signed in! Your manifest URL:';
-      var seg=res.d.segment;
-      var manifest=location.origin+'/'+seg+'/manifest.json';
-      var c=document.createElement('code');c.textContent=manifest;
-      var b=document.createElement('button');
-      b.textContent='Install in Stremio';
-      b.onclick=function(){location.href='stremio://'+manifest.replace(/^https?:\\/\\//,'');};
-      var cp=document.createElement('button');
-      cp.textContent='Copy manifest URL';cp.style.background='#262b38';
-      cp.onclick=function(){navigator.clipboard.writeText(manifest);};
-      document.querySelector('.card').appendChild(c);
-      document.querySelector('.card').appendChild(b);
-      document.querySelector('.card').appendChild(cp);
-    })
-    .catch(function(){
-      document.getElementById('spin').style.display='none';
-      document.getElementById('msg').className='err';
-      document.getElementById('msg').textContent='Request failed. Please try again.';
-    });
-})();
-</script></body></html>`;
-}
-
 // ---- main handler -------------------------------------------------------
 async function handler(req, res) {
   try {
@@ -430,28 +341,11 @@ async function handler(req, res) {
 
     // ── Auth endpoints ───────────────────────────────────────────────
     if (parts[0] === 'auth') {
-      if (parts[1] === 'callback') {
-        return send(res, 200, callbackPage(), 'text/html; charset=utf-8');
-      }
-
       if (parts[1] === 'login' && req.method === 'POST') {
         const { email, password } = await readBody(req);
         if (!email || !password) return sendJsonNoCache(res, 400, { error: 'email and password required' });
         try {
           const { refreshToken, uid, lists } = await addon.loginPassword(email, password);
-          const blob    = addon.encryptBlob({ refreshToken, uid });
-          const segment = 'a_' + blob;
-          return sendJsonNoCache(res, 200, { segment, lists });
-        } catch (err) {
-          return sendJsonNoCache(res, err.status || 401, { error: err.message });
-        }
-      }
-
-      if (parts[1] === 'google' && req.method === 'POST') {
-        const { refresh_token } = await readBody(req);
-        if (!refresh_token) return sendJsonNoCache(res, 400, { error: 'refresh_token required' });
-        try {
-          const { refreshToken, uid, lists } = await addon.exchangeRefreshToken(refresh_token);
           const blob    = addon.encryptBlob({ refreshToken, uid });
           const segment = 'a_' + blob;
           return sendJsonNoCache(res, 200, { segment, lists });
