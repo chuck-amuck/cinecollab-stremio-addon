@@ -294,7 +294,7 @@ function doLogin(){
 }
 function doGoogle(){
   var cb=location.origin+'/auth/callback';
-  location.href='${supabaseUrl}/auth/v1/authorize?provider=google&redirect_to='+encodeURIComponent(cb);
+  location.href=${JSON.stringify(supabaseUrl)}+'/auth/v1/authorize?provider=google&redirect_to='+encodeURIComponent(cb);
 }
 function showAccountLists(lists){
   var cl=document.getElementById('accountChecklist');
