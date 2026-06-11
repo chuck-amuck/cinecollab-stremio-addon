@@ -1,20 +1,22 @@
 # CineCollab → Stremio / Nuvio
 
-Imports any **public CineCollab watchlist** into Stremio or Nuvio as a live catalog.
+Imports CineCollab watchlists into Stremio or Nuvio as live catalogs.
 Each title resolves to its IMDB id, so your installed stream addons match every movie.
 
-- **Live**: re-fetches the watchlist from CineCollab on each load (cached ~60s).
+- **Live**: re-fetches watchlists from CineCollab on each load (cached ~60s).
 - **Zero dependencies**: pure Node 18+. Run locally or deploy free to Vercel.
-- **Multiple watchlists**: add as many lists as you like to a single install — each
-  shows up as its own catalog row. The list IDs live in the install URL.
+- **Multiple watchlists**: add as many lists as you like — each shows up as its own catalog row.
+- **Account integration**: connect your CineCollab account to auto-import private and members-only lists.
+- **Search, sort & filter**: search by title, sort by date/name/year, and filter by genre within any catalog.
+- **Discover**: browse CineCollab's featured public lists without an account.
+- **Browse by user**: enter any CineCollab username to see and add their public lists.
 
 ---
 
 ## How it works
 
-CineCollab is a Supabase-backed app. The addon reads two public REST tables
-(`watchlists`, `watchlist_movies`) using CineCollab's anon key, then converts each
-TMDB id to an IMDB id via the TMDB API. It speaks the standard Stremio addon
+CineCollab is a Supabase-backed app. The addon reads from CineCollab's REST API, then
+converts each TMDB id to an IMDB id via the TMDB API. It speaks the standard Stremio addon
 protocol (`manifest.json`, `catalog`, `meta`), which Nuvio also understands.
 
 ---
@@ -26,19 +28,7 @@ cd cinecollab-stremio-addon
 node server.js
 ```
 
-Then open <http://127.0.0.1:7860/configure>, paste one or more watchlist links
-(one per line), and click **Install in Stremio**. For Nuvio, copy the manifest URL
-and add it under Settings → Addons.
-
-The manifest URL looks like:
-
-```
-# one list
-http://127.0.0.1:7860/<WATCHLIST_ID>/manifest.json
-
-# several lists (comma-separated IDs) — each becomes its own catalog row
-http://127.0.0.1:7860/<ID_1>,<ID_2>,<ID_3>/manifest.json
-```
+Then open <http://127.0.0.1:7860/configure> and use any of the three setup flows below.
 
 > Local hosting only works while your computer is on and only for apps on the same
 > machine/network. For phones/TVs, use Option B.
@@ -50,19 +40,79 @@ http://127.0.0.1:7860/<ID_1>,<ID_2>,<ID_3>/manifest.json
 > Edit the link above to point at your repo (replace `YOUR_USERNAME`) for one-click deploys.
 
 1. Put this folder in a GitHub repo.
-2. Go to <https://vercel.com>, **Add New → Project**, import the repo, and deploy
-   (no settings needed — `vercel.json` handles routing).
-3. Visit `https://<your-project>.vercel.app/configure`, paste your watchlist link,
-   and install. Your manifest URL will be:
+2. Go to <https://vercel.com>, **Add New → Project**, import the repo, and deploy.
+3. Visit `https://<your-project>.vercel.app/configure` to set up your install.
+
+---
+
+## Setup flows
+
+### Flow 1 — Public lists by URL or ID
+
+Paste one or more CineCollab watchlist links (one per line) on the `/configure` page
+and click **Generate install link**. Works without an account.
 
 ```
-https://<your-project>.vercel.app/<WATCHLIST_ID>/manifest.json
+# one list
+http://127.0.0.1:7860/<WATCHLIST_ID>/manifest.json
+
+# several lists (comma-separated) — each becomes its own catalog row
+http://127.0.0.1:7860/<ID_1>,<ID_2>,<ID_3>/manifest.json
 ```
 
-This gives you a public URL that works on any device, anytime.
+### Flow 2 — Browse another user's public lists
 
-> Other free hosts work too (Render, Railway, Deno Deploy, a home server). Anything
-> that can run `node server.js` and expose a public HTTPS URL.
+On the `/configure` page, enter a CineCollab username or profile URL in the
+**Browse another user's lists** section. Their public watchlists appear as a
+checklist — select the ones you want and click **Add selected lists**.
+
+> Only **public** lists are visible this way. Private and members-only lists belonging
+> to another user require them to share their own install link.
+
+### Flow 3 — Connect your own CineCollab account
+
+Requires `ADDON_SECRET` to be set (see [Configuration](#configuration) below).
+
+On the `/configure` page, sign in with your CineCollab email/password or Google account.
+After login, all your watchlists — public, members-only, and private — are auto-discovered
+and shown as a checklist. The generated install URL embeds an encrypted token; no plaintext
+credentials are ever stored.
+
+**Security note:** treat your account install URL as a secret. Anyone who has it can read
+your CineCollab watchlists through this addon.
+
+#### Google OAuth note
+
+Google sign-in requires your addon's `/auth/callback` URL to be on CineCollab's Supabase
+allowed-redirect list. This works for the official deployment. Self-hosters who can't
+add a redirect URL should use email/password instead.
+
+#### Refresh-token rotation on Vercel
+
+Supabase rotates refresh tokens on use. The addon keeps a warm in-memory rotation cache,
+but Vercel cold starts can cause a "session expired" error. When this happens, simply
+reconnect your account from `/configure`. For uninterrupted service prefer the local
+`node server.js` server (which stays warm). Alternatively you can disable refresh-token
+rotation in the CineCollab Supabase project settings if you control it.
+
+---
+
+## Search, sort & filter
+
+Stremio and Nuvio support extra params on any catalog. In the app's catalog row you can:
+
+- **Search** — type to filter titles within a watchlist.
+- **Sort** — Added (newest), Added (oldest), Title A–Z, Title Z–A, Year.
+- **Genre** — filter to a single genre (derived from the items in each list).
+
+These work on all catalogs including the Discover catalog.
+
+---
+
+## Discover catalog
+
+When installed without an account, the addon includes a **CineCollab: Discover** catalog
+populated from CineCollab's featured public lists. No account or UUID needed.
 
 ---
 
@@ -72,11 +122,6 @@ This gives you a public URL that works on any device, anytime.
 manifest URL into Stremio's search/addons bar.
 
 **Nuvio**: Settings → Addons → Add addon → paste the `…/manifest.json` URL.
-
-After installing, each list shows up as its own catalog row (named after the list)
-on the Discover/Board screen. To add or remove lists later, just re-run the
-`/configure` page with the new set of links and re-install — or edit the
-comma-separated IDs in the manifest URL directly.
 
 ---
 
@@ -93,11 +138,12 @@ The `/configure` page accepts the **full link** or just the UUID.
 
 ---
 
-## Configuration (optional env vars)
+## Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `7860` | Local server port |
+| `ADDON_SECRET` | _unset_ | **Required for account features.** Any random secret string (min 16 chars). Encrypts the Supabase token embedded in account install URLs. Rotating this value invalidates all existing account installs. |
 | `TMDB_API_KEY` | a public key | Use your own free TMDB key (themoviedb.org → Settings → API) |
 | `DEFAULT_WATCHLIST` | _empty_ | Pin one list so root `/manifest.json` works without an ID in the path |
 | `CINECOLLAB_ANON_KEY` | CineCollab's public anon key | Override if CineCollab rotates it |
@@ -107,18 +153,26 @@ The `/configure` page accepts the **full link** or just the UUID.
 
 ## Notes & limits
 
-- Works with **public** watchlists. Private/collaborative-only lists aren't readable
-  without a logged-in session.
-- TV entries in a list map to Stremio "series"; movie-only lists leave the Series
-  catalog empty (harmless).
+- Works with **public** watchlists without an account. Private/collaborative-only lists
+  require connecting your account (Flow 3).
+- TV entries map to Stremio "series"; movie-only lists leave the Series catalog empty (harmless).
 - If CineCollab changes its backend or rotates its anon key, update the env vars above.
 - This is an unofficial integration and not affiliated with CineCollab.
+
+---
+
+## Planned features
+
+- **Watch updating (Trakt-style)** — mark titles as watched in CineCollab from within Stremio.
+- **"Already seen" filtering** — hide titles you've already watched from your watchlist catalogs.
+
+---
 
 ## Files
 
 ```
-addon.js      Core logic: fetch list, TMDB→IMDB, build manifest/catalog/meta
-handler.js    HTTP routing + the /configure page (shared by local & serverless)
+addon.js      Core logic: fetch lists, auth, TMDB→IMDB, build manifest/catalog/meta/discover
+handler.js    HTTP routing + configure page + auth endpoints
 server.js     Local Node server  (node server.js)
 api/index.js  Vercel serverless entry
 vercel.json   Vercel routing
