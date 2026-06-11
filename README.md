@@ -5,7 +5,8 @@ Each title resolves to its IMDB id, so your installed stream addons match every 
 
 - **Live**: re-fetches the watchlist from CineCollab on each load (cached ~60s).
 - **Zero dependencies**: pure Node 18+. Run locally or deploy free to Vercel.
-- **Multi-list**: one deployment serves any watchlist — the list ID lives in the install URL.
+- **Multiple watchlists**: add as many lists as you like to a single install — each
+  shows up as its own catalog row. The list IDs live in the install URL.
 
 ---
 
@@ -25,14 +26,18 @@ cd cinecollab-stremio-addon
 node server.js
 ```
 
-Then open <http://127.0.0.1:7860/configure>, paste your watchlist link, and click
-**Install in Stremio**. For Nuvio, copy the manifest URL and add it under
-Settings → Addons.
+Then open <http://127.0.0.1:7860/configure>, paste one or more watchlist links
+(one per line), and click **Install in Stremio**. For Nuvio, copy the manifest URL
+and add it under Settings → Addons.
 
 The manifest URL looks like:
 
 ```
+# one list
 http://127.0.0.1:7860/<WATCHLIST_ID>/manifest.json
+
+# several lists (comma-separated IDs) — each becomes its own catalog row
+http://127.0.0.1:7860/<ID_1>,<ID_2>,<ID_3>/manifest.json
 ```
 
 > Local hosting only works while your computer is on and only for apps on the same
@@ -68,8 +73,10 @@ manifest URL into Stremio's search/addons bar.
 
 **Nuvio**: Settings → Addons → Add addon → paste the `…/manifest.json` URL.
 
-After installing, the list shows up as a catalog called
-`<List name> (Movies)` on the Discover/Board screen.
+After installing, each list shows up as its own catalog row (named after the list)
+on the Discover/Board screen. To add or remove lists later, just re-run the
+`/configure` page with the new set of links and re-install — or edit the
+comma-separated IDs in the manifest URL directly.
 
 ---
 

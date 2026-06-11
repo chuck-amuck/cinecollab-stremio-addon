@@ -120,15 +120,71 @@ async function toMeta(item) {
   };
 }
 
+// ---- config parsing -----------------------------------------------------
+// A config segment may hold one or many watchlists: a comma/space separated
+// list of UUIDs and/or full CineCollab links. Returns an ordered, de-duped
+// array of watchlist UUIDs.
+function parseConfig(seg) {
+  if (!seg) return [];
+  let s = decodeURIComponent(seg);
+  const found = s.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || [];
+  return [...new Set(found.map(function (x) { return x.toLowerCase(); }))];
+}
+
+// catalog id <-> watchlist id helpers (catalog id must be URL-safe)
+function catalogIdFor(watchlistId) { return 'cc_' + watchlistId; }
+function watchlistFromCatalogId(catalogId) {
+  return String(catalogId || '').replace(/^cc_/, '').replace(/\.json$/, '');
+}
+
+// Summarise each list: name + which content types it actually contains.
+async function listSummaries(ids) {
+  return Promise.all(ids.map(async function (id) {
+    try {
+      const { meta, items } = await fetchWatchlist(id);
+      const hasMovies = items.some(function (i) { return (i.media_type || 'movie') !== 'tv'; });
+      const hasSeries = items.some(function (i) { return i.media_type === 'tv'; });
+      return { id, name: (meta && meta.name) || 'CineCollab Watchlist', hasMovies, hasSeries, ok: true };
+    } catch (e) {
+      return { id, name: 'CineCollab Watchlist', hasMovies: true, hasSeries: false, ok: false };
+    }
+  }));
+}
+
 // ---- public builders ----------------------------------------------------
-function buildManifest(watchlistId, listName) {
-  const name = listName || 'CineCollab Watchlist';
+async function buildManifest(ids) {
+  const list = ids.length ? ids : [];
+  const summaries = await listSummaries(list);
+
+  const catalogs = [];
+  summaries.forEach(function (s) {
+    const cid = catalogIdFor(s.id);
+    // If we couldn't read the list, expose both types as a safe fallback.
+    const showMovies = s.ok ? s.hasMovies : true;
+    const showSeries = s.ok ? s.hasSeries : true;
+    const both = showMovies && showSeries;
+    if (showMovies) {
+      catalogs.push({ type: 'movie', id: cid, name: s.name + (both ? ' (Movies)' : '') });
+    }
+    if (showSeries) {
+      catalogs.push({ type: 'series', id: cid, name: s.name + (both ? ' (Series)' : '') });
+    }
+  });
+
+  const title = summaries.length === 1
+    ? summaries[0].name
+    : summaries.length + ' watchlists';
+
   return {
-    id: 'com.cinecollab.watchlist.' + (watchlistId || 'default'),
-    version: '1.0.0',
-    name: 'CineCollab: ' + name,
-    description: 'Imports the CineCollab watchlist "' + name +
-      '" as a Stremio/Nuvio catalog. Updates live from CineCollab.',
+    id: 'com.cinecollab.watchlist.' + (list.join('-').slice(0, 80) || 'default'),
+    version: '1.1.0',
+    name: 'CineCollab: ' + title,
+    description: list.length
+      ? 'Imports ' + (summaries.length === 1
+          ? 'the CineCollab watchlist "' + summaries[0].name + '"'
+          : summaries.length + ' CineCollab watchlists') +
+        ' as Stremio/Nuvio catalogs. Updates live from CineCollab.'
+      : 'Add one or more CineCollab watchlists via the configure page.',
     logo: 'https://www.cinecollab.app/logo.svg',
     background: 'https://www.cinecollab.app/opengraph.png',
     resources: [
@@ -137,39 +193,42 @@ function buildManifest(watchlistId, listName) {
     ],
     types: ['movie', 'series'],
     idPrefixes: ['tt', 'cc:'],
-    catalogs: [
-      { type: 'movie', id: 'cinecollab-movies', name: name + ' (Movies)' },
-      { type: 'series', id: 'cinecollab-series', name: name + ' (Series)' }
-    ],
-    behaviorHints: { configurable: true, configurationRequired: false }
+    catalogs: catalogs,
+    behaviorHints: { configurable: true, configurationRequired: list.length === 0 }
   };
 }
 
-async function buildCatalog(watchlistId, type) {
+function stripInternal(m) { var c = Object.assign({}, m); delete c._tmdb; delete c._mediaType; return c; }
+
+// One catalog == one watchlist; the requested `type` selects movie vs series.
+async function buildCatalog(catalogId, type) {
+  const watchlistId = watchlistFromCatalogId(catalogId);
   const { items } = await fetchWatchlist(watchlistId);
   const wanted = type === 'series' ? 'tv' : 'movie';
   const filtered = items.filter(function (i) { return (i.media_type || 'movie') === wanted; });
   const metas = await Promise.all(filtered.map(toMeta));
-  // strip internal fields
-  return { metas: metas.map(function (m) { var c = Object.assign({}, m); delete c._tmdb; delete c._mediaType; return c; }) };
+  return { metas: metas.map(stripInternal) };
 }
 
-// Meta fallback only for cc:<mediaType>:<tmdbId> ids (titles without an IMDB id).
-async function buildMeta(watchlistId, type, id) {
-  const { items } = await fetchWatchlist(watchlistId);
+// Meta fallback for cc:<mediaType>:<tmdbId> ids. Searches every configured list.
+async function buildMeta(ids, type, id) {
   const parts = id.split(':'); // cc, mediaType, tmdbId
   const mediaType = parts[1];
   const tmdbId = parts[2];
-  const item = items.find(function (i) {
-    return String(i.media_id) === String(tmdbId) && i.media_type === mediaType;
-  });
-  if (!item) return { meta: null };
-  const m = await toMeta(item);
-  delete m._tmdb; delete m._mediaType;
-  return { meta: m };
+  const lists = await Promise.all(ids.map(function (w) {
+    return fetchWatchlist(w).catch(function () { return { items: [] }; });
+  }));
+  for (const { items } of lists) {
+    const item = items.find(function (i) {
+      return String(i.media_id) === String(tmdbId) && i.media_type === mediaType;
+    });
+    if (item) return { meta: stripInternal(await toMeta(item)) };
+  }
+  return { meta: null };
 }
 
 module.exports = {
   buildManifest, buildCatalog, buildMeta, fetchWatchlist,
+  parseConfig, listSummaries,
   SUPABASE_URL, TMDB_KEY
 };
