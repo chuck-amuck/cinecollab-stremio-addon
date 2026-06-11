@@ -7,6 +7,7 @@
  * Config segment in URL:
  *   <uuid>[,<uuid>…]              — public lists (anon key)
  *   a_<blob>[,<uuid>…]            — authenticated account (auto-discovers all lists)
+ *   d_on                          — include the Discover (featured lists) catalog
  *
  * Account token is AES-256-GCM encrypted using ADDON_SECRET. Without that
  * env var the account features are disabled and a_… segments are ignored.
@@ -168,20 +169,23 @@ async function getAccessToken(originalRT) {
 }
 
 // ---- Config parsing -------------------------------------------------------
-// Returns { authBlob: string|null, ids: string[] }
+// Returns { authBlob: string|null, ids: string[], discover: boolean }
 // authBlob is the raw `a_…` token string (without the `a_` prefix).
 // ids are manually-specified watchlist UUIDs.
-const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const AUTH_RE = /(?:^|,)a_([A-Za-z0-9_-]+)/;
+// discover is true when the `d_on` token is present.
+const UUID_RE     = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const AUTH_RE     = /(?:^|,)a_([A-Za-z0-9_-]+)/;
+const DISCOVER_RE = /(?:^|,)d_on(?:,|$)/;
 
 function parseConfig(seg) {
-  if (!seg) return { authBlob: null, ids: [] };
+  if (!seg) return { authBlob: null, ids: [], discover: false };
   const s = decodeURIComponent(seg);
   const authMatch = s.match(AUTH_RE);
-  const authBlob = authMatch ? authMatch[1] : null;
-  const found = s.match(UUID_RE) || [];
-  const ids = [...new Set(found.map(x => x.toLowerCase()))];
-  return { authBlob, ids };
+  const authBlob  = authMatch ? authMatch[1] : null;
+  const found     = s.match(UUID_RE) || [];
+  const ids       = [...new Set(found.map(x => x.toLowerCase()))];
+  const discover  = DISCOVER_RE.test(s);
+  return { authBlob, ids, discover };
 }
 
 // Resolves an authBlob to { accessToken, uid } or null.
@@ -453,8 +457,8 @@ async function buildManifest(parsed, auth) {
     }
   });
 
-  // Discover catalog — always shown when not in account mode (not to clutter)
-  if (!authBlob) {
+  // Discover catalog — shown only when explicitly opted in via d_on token.
+  if (parsed.discover) {
     catalogs.push({ type: 'movie',  id: DISCOVER_ID, name: 'CineCollab: Discover', extra: extraDefs([]) });
     catalogs.push({ type: 'series', id: DISCOVER_ID, name: 'CineCollab: Discover', extra: extraDefs([]) });
   }

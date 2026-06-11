@@ -42,17 +42,16 @@ test('buildManifest: version is 1.2.0 and required fields present', async () => 
   assert.ok(manifest.resources.some(r => r === 'catalog' || (r && r.name === 'catalog')));
 });
 
-test('buildManifest: Discover catalogs present when no authBlob', async () => {
-  const manifest = await buildManifest(parseConfig(TEST_UUID), null);
+test('buildManifest: Discover catalogs present when d_on token set', async () => {
+  const manifest = await buildManifest(parseConfig('d_on,' + TEST_UUID), null);
   const discover = manifest.catalogs.filter(c => c.id === DISCOVER_ID);
   assert.equal(discover.length, 2, 'one movie + one series Discover catalog');
   assert.ok(discover.some(c => c.type === 'movie'));
   assert.ok(discover.some(c => c.type === 'series'));
 });
 
-test('buildManifest: Discover catalogs absent when authBlob present', async () => {
-  const parsed = { authBlob: 'fakeblob', ids: [TEST_UUID] };
-  const manifest = await buildManifest(parsed, null);
+test('buildManifest: Discover catalogs absent without d_on token', async () => {
+  const manifest = await buildManifest(parseConfig(TEST_UUID), null);
   assert.equal(manifest.catalogs.filter(c => c.id === DISCOVER_ID).length, 0);
 });
 
