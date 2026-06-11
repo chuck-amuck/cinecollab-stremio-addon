@@ -525,7 +525,7 @@ async function buildMeta(ids, type, id, accessToken) {
 module.exports = {
   buildManifest, buildCatalog, buildMeta, buildDiscover,
   fetchWatchlist, fetchUserLists, listSummaries,
-  loginPassword, exchangeRefreshToken,
+  loginPassword, exchangeRefreshToken, getAccessToken, sbHeaders,
   parseConfig, resolveAuth, encryptBlob, decryptBlob, applyExtras,
   discoverWatchlists,
   DISCOVER_ID, SUPABASE_URL, SUPABASE_ANON, TMDB_KEY

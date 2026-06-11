@@ -145,6 +145,81 @@ The `/configure` page accepts the **full link** or just the UUID.
 
 ---
 
+## Trakt → CineCollab sync (watched tracking)
+
+Keep CineCollab's **watched** state in sync with what you actually watch in Nuvio —
+the equivalent of a Trakt scrobble, flowing back into CineCollab.
+
+**How the pieces fit:** Nuvio has a built-in Trakt integration that scrobbles what you
+watch. This repo ships `traktSync.js`, a small one-way sync that pulls your Trakt watch
+history and records it in CineCollab's `user_watched` table. So the chain is:
+
+```
+Nuvio (built-in Trakt scrobble) ──▶ Trakt ──▶ traktSync.js ──▶ CineCollab user_watched
+```
+
+There is **no Nuvio plugin to write** — Nuvio "plugins" are stream scrapers and have no
+watched-state hook. You just connect Trakt inside Nuvio (Settings → Trakt) and enable
+scrobbling. Trakt's public API is the integration point.
+
+### Setup
+
+1. **Register a Trakt API app** (free): <https://trakt.tv/oauth/applications> → *New
+   Application*. Redirect URI can be `urn:ietf:wg:oauth:2.0:oob`. Note the **client id**
+   and **client secret**.
+2. **Set env vars** (e.g. in `.env` or your shell):
+
+   ```bash
+   export TRAKT_CLIENT_ID=…
+   export TRAKT_CLIENT_SECRET=…
+   export CINECOLLAB_EMAIL=you@example.com
+   export CINECOLLAB_PASSWORD=…
+   # optional: also mark watched TV shows (title-level) from episode history
+   export SYNC_SHOWS=true
+   ```
+
+   > **Signed up with Google?** You have no password, so set `CINECOLLAB_REFRESH_TOKEN`
+   > instead of email/password. Find it in your browser: open CineCollab while logged in,
+   > DevTools → Application → Local Storage → the `sb-…-auth-token` entry → copy the
+   > `refresh_token` value. You only set it once; the sync persists the rotated token after.
+
+3. **Authorize Trakt once** (device-code flow — no browser callback needed):
+
+   ```bash
+   npm run sync:login          # prints a code + URL; visit trakt.tv/activate
+   ```
+
+4. **Sync:**
+
+   ```bash
+   npm run sync                # one incremental pass
+   npm run sync:watch          # run forever (every SYNC_INTERVAL_MS, default 15 min)
+   node traktSync.js status    # show stored token + cursor
+   ```
+
+The sync is **incremental** (tracks a `watched_at` cursor) and **idempotent** (de-dupes
+against titles already recorded in CineCollab), so re-running is always safe. State lives
+in `.trakt-sync-state.json` (gitignored).
+
+### Sync env vars
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | _unset_ | **Required.** From your Trakt API app |
+| `CINECOLLAB_EMAIL` / `CINECOLLAB_PASSWORD` | _unset_ | CineCollab account to record watched titles against |
+| `CINECOLLAB_REFRESH_TOKEN` | _unset_ | Alternative to email/password — **required if you signed up via Google** (no password). Read once on first run, then the rotated token is saved to the state file, so you only set it once. |
+| `SYNC_SHOWS` | `false` | `true` also marks watched **TV shows** (title-level) from episode history |
+| `SYNC_INTERVAL_MS` | `900000` | Poll interval for `sync:watch` (15 min) |
+| `SYNC_STATE_FILE` | `.trakt-sync-state.json` | Where the Trakt token + cursor are stored |
+
+> **Notes.** Trakt returns TMDB ids, which CineCollab stores natively — no id conversion
+> needed on this path. Marking a TV show watched is **title-level** (one `user_watched`
+> row per show on its first scrobbled episode), so leave `SYNC_SHOWS` off if you only
+> want movies. Best run as a long-lived process (`npm run sync:watch`) or a cron; on
+> Vercel you'd need durable storage for the state file, so a self-hosted process is simpler.
+
+---
+
 ## Notes & limits
 
 - Works with **public** watchlists without an account. Private/collaborative-only lists
@@ -158,8 +233,9 @@ The `/configure` page accepts the **full link** or just the UUID.
 ## Planned features
 
 - **Google sign-in** — currently blocked because self-hosted deployments can't add their `/auth/callback` URL to the CineCollab Supabase project's redirect allowlist. Use email/password login in the meantime.
-- **Watch updating (Trakt-style)** — mark titles as watched in CineCollab from within Stremio.
-- **"Already seen" filtering** — hide titles you've already watched from your watchlist catalogs.
+- **"Already seen" filtering** — hide titles you've already watched (from `user_watched`, now
+  populated by the [Trakt → CineCollab sync](#trakt--cinecollab-sync-watched-tracking)) from
+  your watchlist catalogs.
 
 ---
 
@@ -169,6 +245,7 @@ The `/configure` page accepts the **full link** or just the UUID.
 addon.js      Core logic: fetch lists, auth, TMDB→IMDB, build manifest/catalog/meta/discover
 handler.js    HTTP routing + configure page + auth endpoints
 server.js     Local Node server  (node server.js)
+traktSync.js  Trakt → CineCollab watched-state sync (CLI: login/run/watch/status)
 api/index.js  Vercel serverless entry
 vercel.json   Vercel routing
 ```
