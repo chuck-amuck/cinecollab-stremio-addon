@@ -267,7 +267,7 @@ function addCheckedUserLists(){
   var existing=srcUuids();
   var toAdd=checked.filter(function(id){return existing.indexOf(id)===-1;});
   if(toAdd.length){
-    ta.value=(ta.value.trim()?ta.value.trim()+'\n':'')+toAdd.join('\n');
+    ta.value=(ta.value.trim()?ta.value.trim()+'\\n':'')+toAdd.join('\\n');
   }
   refresh();
   document.getElementById('profileResult').style.display='none';
