@@ -73,19 +73,13 @@ checklist — select the ones you want and click **Add selected lists**.
 
 Requires `ADDON_SECRET` to be set (see [Configuration](#configuration) below).
 
-On the `/configure` page, sign in with your CineCollab email/password or Google account.
+On the `/configure` page, sign in with your CineCollab email and password.
 After login, all your watchlists — public, members-only, and private — are auto-discovered
 and shown as a checklist. The generated install URL embeds an encrypted token; no plaintext
 credentials are ever stored.
 
 **Security note:** treat your account install URL as a secret. Anyone who has it can read
 your CineCollab watchlists through this addon.
-
-#### Google OAuth note
-
-Google sign-in requires your addon's `/auth/callback` URL to be on CineCollab's Supabase
-allowed-redirect list. This works for the official deployment. Self-hosters who can't
-add a redirect URL should use email/password instead.
 
 #### Refresh-token rotation on Vercel
 
@@ -163,6 +157,7 @@ The `/configure` page accepts the **full link** or just the UUID.
 
 ## Planned features
 
+- **Google sign-in** — currently blocked because self-hosted deployments can't add their `/auth/callback` URL to the CineCollab Supabase project's redirect allowlist. Use email/password login in the meantime.
 - **Watch updating (Trakt-style)** — mark titles as watched in CineCollab from within Stremio.
 - **"Already seen" filtering** — hide titles you've already watched from your watchlist catalogs.
 
