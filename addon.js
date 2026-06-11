@@ -14,8 +14,7 @@
 
 const crypto = require('crypto');
 
-const SUPABASE_URL = process.env.CINECOLLAB_SUPABASE_URL ||
-  'https://fnsklauaxovbvatfquil.supabase.co';
+const SUPABASE_URL = (process.env.CINECOLLAB_SUPABASE_URL || 'https://fnsklauaxovbvatfquil.supabase.co').trim();
 
 const SUPABASE_ANON = process.env.CINECOLLAB_ANON_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZuc2tsYXVheG92YnZhdGZxdWlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3MzI2MzIsImV4cCI6MjA5MjA5MjYzMn0.NfwVFGH13dT_dRQcOdMMmAqS1J1e0O1gicPyUTeGHRg';
