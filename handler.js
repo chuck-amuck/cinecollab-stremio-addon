@@ -64,6 +64,7 @@ function configurePage(prefill) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CineCollab → Stremio / Nuvio</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root{color-scheme:dark}
   body{font-family:Inter,system-ui,sans-serif;background:#0d0f14;color:#e8eaf0;
@@ -334,6 +335,7 @@ function callbackPage() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CineCollab – Signing in…</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root{color-scheme:dark}
   body{font-family:Inter,system-ui,sans-serif;background:#0d0f14;color:#e8eaf0;
@@ -420,6 +422,11 @@ async function handler(req, res) {
       return send(res, 200, configurePage(DEFAULT_WATCHLIST), 'text/html; charset=utf-8');
     }
     if (parts[0] === 'health') return sendJson(res, 200, { ok: true });
+    if (parts[0] === 'favicon.ico' || parts[0] === 'favicon.svg') {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#161922"/><rect x="3" y="3" width="4" height="5" rx="1" fill="#6d5efc"/><rect x="25" y="3" width="4" height="5" rx="1" fill="#6d5efc"/><rect x="3" y="24" width="4" height="5" rx="1" fill="#6d5efc"/><rect x="25" y="24" width="4" height="5" rx="1" fill="#6d5efc"/><polygon points="11,9 11,23 24,16" fill="#6d5efc"/></svg>';
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public,max-age=86400', 'Access-Control-Allow-Origin': '*' });
+      return res.end(svg);
+    }
 
     // ── Auth endpoints ───────────────────────────────────────────────
     if (parts[0] === 'auth') {
