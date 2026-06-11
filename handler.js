@@ -115,6 +115,10 @@ function configurePage(prefill) {
      Each becomes its own catalog row.</p>
   <textarea id="src" placeholder="https://www.cinecollab.app/watchlists/…&#10;https://www.cinecollab.app/watchlists/…">${value}</textarea>
   <p class="hint" id="count"></p>
+  <label style="display:flex;align-items:center;gap:8px;margin:8px 0 12px;cursor:pointer;font-size:14px;color:#9aa3b2">
+    <input type="checkbox" id="discoverToggle" checked style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
+    Include Discover catalog (CineCollab featured lists)
+  </label>
   <button onclick="gen()">Generate install link</button>
 
   <!-- ── Section 2: Browse another user's lists ─────────────────── -->
@@ -195,10 +199,13 @@ function showInstall(segment){
 }
 
 // ── public UUID flow ──────────────────────────────────────────────
+function withDiscover(seg){
+  return document.getElementById('discoverToggle').checked ? 'd_on,'+seg : seg;
+}
 function gen(){
   var list=srcUuids();
   if(!list.length){return;}
-  showInstall(list.join(','));
+  showInstall(withDiscover(list.join(',')));
 }
 
 // ── user profile lookup ───────────────────────────────────────────
@@ -305,7 +312,7 @@ function genAccount(){
   if(!_accountSegment)return;
   var extra=srcUuids();
   var seg=extra.length?_accountSegment+','+extra.join(','):_accountSegment;
-  showInstall(seg);
+  showInstall(withDiscover(seg));
 }
 
 // ── helpers ───────────────────────────────────────────────────────
