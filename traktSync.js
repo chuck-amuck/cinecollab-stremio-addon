@@ -60,8 +60,11 @@ loadDotEnv(path.join(__dirname, '.env'));
 const addon = require('./addon');
 
 const TRAKT_BASE = 'https://api.trakt.tv';
+const TMDB_BASE  = 'https://api.themoviedb.org/3';
 const STATE_FILE = process.env.SYNC_STATE_FILE ||
   path.join(__dirname, '.trakt-sync-state.json');
+
+// No default — must be set via TARGET_WATCHLIST_ID env var or --watchlist <id> flag.
 
 // ---- state persistence --------------------------------------------------
 function loadState() {
@@ -245,10 +248,30 @@ async function cineCollabAuth(state) {
 
   let inputRT, uid, rotatedRT;
   if (storedRT) {
-    const r = await addon.exchangeRefreshToken(storedRT);
-    inputRT = storedRT;
-    uid = r.uid;
-    rotatedRT = r.refreshToken;
+    let refreshOk = false;
+    try {
+      const r = await addon.exchangeRefreshToken(storedRT);
+      inputRT = storedRT;
+      uid = r.uid;
+      rotatedRT = r.refreshToken;
+      refreshOk = true;
+    } catch (err) {
+      // Token already used / rotated — fall through to email/password if available.
+      // Clear the dead token so re-runs don't keep failing.
+      console.warn('Stored CineCollab refresh token rejected (' + err.message + '); falling back to email/password.');
+      state.cinecollab = null;
+      saveState(state);
+    }
+    if (refreshOk) {
+      // already have uid/rotatedRT — skip the email/password block below
+    } else if (process.env.CINECOLLAB_EMAIL && process.env.CINECOLLAB_PASSWORD) {
+      const r = await addon.loginPassword(process.env.CINECOLLAB_EMAIL, process.env.CINECOLLAB_PASSWORD);
+      inputRT = r.refreshToken;
+      uid = r.uid;
+      rotatedRT = r.refreshToken;
+    } else {
+      throw new Error('CineCollab session expired and no CINECOLLAB_EMAIL/CINECOLLAB_PASSWORD set to re-authenticate.');
+    }
   } else {
     const email = requireEnv('CINECOLLAB_EMAIL');
     const password = requireEnv('CINECOLLAB_PASSWORD');
@@ -310,6 +333,208 @@ async function insertWatched(accessToken, rows) {
   return inserted;
 }
 
+// ---- watchlist population -----------------------------------------------
+
+// Fetch all uniquely-watched titles from Trakt's /sync/watched/<kind> endpoint
+// (one entry per title, not one per play — simpler than /sync/history for this use case).
+async function traktWatched(kind, accessToken) {
+  const res = await fetch(TRAKT_BASE + '/sync/watched/' + kind, {
+    headers: traktHeaders(accessToken)
+  });
+  if (!res.ok) throw new Error('Trakt /sync/watched/' + kind + ' failed: ' + res.status);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+// Pure mapper (unit-tested): Trakt /sync/watched responses → [{ tmdbId, mediaType, watchedAt }].
+// Each element represents one unique title; entries missing a TMDB id are skipped.
+// watchedAt carries last_watched_at so callers can preserve watch order via added_at.
+function traktWatchedToWatchlistRows(movieItems, showItems) {
+  const out = [];
+  for (const item of (movieItems || [])) {
+    const tmdbId = item && item.movie && item.movie.ids && item.movie.ids.tmdb;
+    if (tmdbId) out.push({ tmdbId, mediaType: 'movie', watchedAt: item.last_watched_at || null, traktTitle: (item.movie && item.movie.title) || null });
+  }
+  for (const item of (showItems || [])) {
+    const tmdbId = item && item.show && item.show.ids && item.show.ids.tmdb;
+    if (tmdbId) out.push({ tmdbId, mediaType: 'tv', watchedAt: item.last_watched_at || null, traktTitle: (item.show && item.show.title) || null });
+  }
+  return out;
+}
+
+// Fetch TMDB display metadata for one title. Returns the watchlist_movies fields
+// (title, poster_path, backdrop_path, release_date, genre_ids, runtime) or null on failure.
+async function tmdbDetails(mediaType, tmdbId) {
+  const endpoint = mediaType === 'tv' ? '/tv/' : '/movie/';
+  let data;
+  try {
+    const res = await fetch(TMDB_BASE + endpoint + tmdbId + '?api_key=' + addon.TMDB_KEY);
+    if (!res.ok) return null;
+    data = await res.json();
+  } catch (_) {
+    return null;
+  }
+  const genreIds = (data.genres || []).map(g => g.id);
+  if (mediaType === 'tv') {
+    return {
+      title: data.name || '',
+      poster_path: data.poster_path || null,
+      backdrop_path: data.backdrop_path || null,
+      release_date: data.first_air_date || null,
+      genre_ids: genreIds,
+      runtime: (data.episode_run_time && data.episode_run_time[0]) || null
+    };
+  }
+  return {
+    title: data.title || '',
+    poster_path: data.poster_path || null,
+    backdrop_path: data.backdrop_path || null,
+    release_date: data.release_date || null,
+    genre_ids: genreIds,
+    runtime: data.runtime || null
+  };
+}
+
+// Returns a Set of `${media_id}:${media_type}` strings already in a watchlist
+// (used to skip titles that don't need to be inserted again).
+async function fetchExistingWatchlistItems(accessToken, watchlistId) {
+  const url = addon.SUPABASE_URL +
+    '/rest/v1/watchlist_movies?select=media_id,media_type&watchlist_id=eq.' +
+    encodeURIComponent(watchlistId);
+  const res = await fetch(url, { headers: addon.sbHeaders(accessToken) });
+  if (!res.ok) throw new Error('Failed to read watchlist ' + watchlistId + ': ' + res.status);
+  const rows = await res.json();
+  const keys = new Set();
+  for (const r of (Array.isArray(rows) ? rows : [])) {
+    keys.add(String(r.media_id) + ':' + r.media_type);
+  }
+  return keys;
+}
+
+// Insert rows into watchlist_movies in chunks of 100, idempotently.
+// on_conflict + ignore-duplicates means re-runs never double-insert or error.
+async function insertWatchlistMovies(accessToken, rows) {
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    const res = await fetch(
+      addon.SUPABASE_URL + '/rest/v1/watchlist_movies?on_conflict=watchlist_id,media_id,media_type', {
+        method: 'POST',
+        headers: {
+          ...addon.sbHeaders(accessToken),
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal,resolution=ignore-duplicates'
+        },
+        body: JSON.stringify(chunk)
+      });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error('Insert into watchlist_movies failed (' + res.status + '): ' + body.slice(0, 300));
+    }
+    inserted += chunk.length;
+  }
+  return inserted;
+}
+
+// Delete all rows in a watchlist (used with --clear before re-populating).
+async function clearWatchlist(accessToken, watchlistId) {
+  const url = addon.SUPABASE_URL +
+    '/rest/v1/watchlist_movies?watchlist_id=eq.' + encodeURIComponent(watchlistId);
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { ...addon.sbHeaders(accessToken), Prefer: 'return=minimal' }
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error('Failed to clear watchlist ' + watchlistId + ' (' + res.status + '): ' + body.slice(0, 300));
+  }
+}
+
+// Enrich a list of { tmdbId, mediaType } with TMDB display metadata, running up
+// to 5 requests in parallel with a 200 ms pause between batches to stay within
+// TMDB's rate limit. Titles that return null (TMDB miss) are kept in the result
+// so the caller can report the skip count.
+async function enrichWithTmdb(items) {
+  const CONCURRENCY = 5;
+  const results = [];
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const batch = items.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(({ tmdbId, mediaType, watchedAt, traktTitle }) =>
+        tmdbDetails(mediaType, tmdbId).then(meta => ({ tmdbId, mediaType, watchedAt, traktTitle, meta }))
+      )
+    );
+    results.push(...batchResults);
+    if (i + CONCURRENCY < items.length) await sleep(200);
+  }
+  return results;
+}
+
+async function populateWatchlist(watchlistId, opts, log = console.log) {
+  const moviesOnly = (opts && opts.moviesOnly) || false;
+  const showsOnly  = (opts && opts.showsOnly)  || false;
+  const clear      = (opts && opts.clear)      || false;
+
+  const state = loadState();
+  const traktToken = await ensureTraktToken(state);
+  const { accessToken, uid } = await cineCollabAuth(state);
+
+  if (clear) {
+    log('Clearing watchlist…');
+    await clearWatchlist(accessToken, watchlistId);
+  }
+
+  // Fetch movies and shows in parallel.
+  log('Fetching watched titles from Trakt…');
+  const [movieItems, showItems] = await Promise.all([
+    showsOnly  ? Promise.resolve([]) : traktWatched('movies', traktToken),
+    moviesOnly ? Promise.resolve([]) : traktWatched('shows',  traktToken),
+  ]);
+  log('  Trakt: ' + movieItems.length + ' movie(s), ' + showItems.length + ' show(s)');
+
+  // Merge both types then sort oldest-watched-first so added_at reflects the
+  // actual watch timeline regardless of media type.
+  const mapped = traktWatchedToWatchlistRows(movieItems, showItems);
+  mapped.sort((a, b) => {
+    if (!a.watchedAt) return 1;
+    if (!b.watchedAt) return -1;
+    return a.watchedAt < b.watchedAt ? -1 : a.watchedAt > b.watchedAt ? 1 : 0;
+  });
+
+  const existing = clear ? new Set() : await fetchExistingWatchlistItems(accessToken, watchlistId);
+  const fresh = mapped.filter(r => !existing.has(String(r.tmdbId) + ':' + r.mediaType));
+  log('  ' + fresh.length + ' new title(s) to add (of ' + mapped.length + ' with TMDB id)');
+  if (!fresh.length) { log('Done. Nothing to add.'); return 0; }
+
+  log('  Enriching with TMDB metadata…');
+  const enriched = await enrichWithTmdb(fresh);
+  const rows = enriched
+    .filter(e => e.meta)
+    .map(e => {
+      const row = {
+        watchlist_id: watchlistId,
+        media_id: String(e.tmdbId),
+        media_type: e.mediaType,
+        added_by: uid,
+        ...e.meta
+      };
+      if (e.watchedAt) row.added_at = e.watchedAt;
+      return row;
+    });
+
+  const skippedItems = enriched.filter(e => !e.meta);
+  if (skippedItems.length) {
+    log('  Skipped ' + skippedItems.length + ' title(s) with no TMDB record:');
+    for (const e of skippedItems) {
+      log('    [' + e.mediaType + '] ' + (e.traktTitle || '(unknown)') + ' (tmdb:' + e.tmdbId + ')');
+    }
+  }
+
+  const n = await insertWatchlistMovies(accessToken, rows);
+  log('Done. Added ' + n + ' title(s) to watchlist.');
+  return n;
+}
+
 // ---- orchestration ------------------------------------------------------
 async function runSync(log = console.log) {
   const includeShows = String(process.env.SYNC_SHOWS || '').toLowerCase() === 'true';
@@ -367,6 +592,7 @@ function showStatus(log = console.log) {
     : 'not connected — run `login`'));
   log('Cursor:     ' + (state.cursor || '(none — next run is a full sync)'));
   log('Show sync:  ' + (String(process.env.SYNC_SHOWS || '').toLowerCase() === 'true' ? 'on' : 'off'));
+  log('Watchlist:  ' + (process.env.TARGET_WATCHLIST_ID || '(not set — set TARGET_WATCHLIST_ID to use populate-watchlist)'));
 }
 
 async function watchLoop(log = console.log) {
@@ -390,9 +616,24 @@ async function main() {
     case 'run':    return void (await runSync());
     case 'watch':  return watchLoop();
     case 'status': return showStatus();
+    case 'populate-watchlist': {
+      const flags = process.argv.slice(3);
+      const wlIdx = flags.indexOf('--watchlist');
+      const watchlistId = (wlIdx !== -1 && flags[wlIdx + 1]) || process.env.TARGET_WATCHLIST_ID;
+      if (!watchlistId) {
+        console.error('Error: set TARGET_WATCHLIST_ID in your .env or pass --watchlist <uuid>');
+        process.exit(1);
+      }
+      const opts = {
+        moviesOnly: flags.includes('--movies-only'),
+        showsOnly:  flags.includes('--shows-only'),
+        clear:      flags.includes('--clear')
+      };
+      return void (await populateWatchlist(watchlistId, opts));
+    }
     default:
       console.error('Unknown command: ' + cmd);
-      console.error('Usage: node traktSync.js [login|run|watch|status]');
+      console.error('Usage: node traktSync.js [login|run|watch|status|populate-watchlist]');
       process.exit(1);
   }
 }
@@ -402,5 +643,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  traktHistoryToRows, dedupeAgainstExisting, newestWatchedAt, normalizeTraktToken
+  traktHistoryToRows, dedupeAgainstExisting, newestWatchedAt, normalizeTraktToken,
+  traktWatchedToWatchlistRows
 };

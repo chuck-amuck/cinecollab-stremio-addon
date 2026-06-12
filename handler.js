@@ -65,6 +65,7 @@ function configurePage(prefill) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CineCollab → Stremio / Nuvio</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script defer src="/_vercel/insights/script.js"></script>
 <style>
   :root{color-scheme:dark}
   body{font-family:Inter,system-ui,sans-serif;background:#0d0f14;color:#e8eaf0;
