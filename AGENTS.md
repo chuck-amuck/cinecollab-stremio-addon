@@ -19,7 +19,8 @@ Trakt watch history into CineCollab. **Zero runtime deps, Node 18+, CommonJS, 2-
 
 `addon.js` data layer (lists, auth, TMDB→IMDB, manifest/catalog/meta) · `handler.js` HTTP
 routes + `/configure` page · `server.js` local server · `api/index.js` Vercel entry ·
-`traktSync.js` Trakt→CineCollab sync + CLI · `test/*.test.js` offline unit tests.
+`traktSync.js` Trakt→CineCollab sync + watchlist populate CLI (login/run/watch/status/populate-watchlist) ·
+`test/*.test.js` offline unit tests.
 
 ## Non-obvious invariants (won't catch these from reading code)
 
@@ -32,6 +33,11 @@ routes + `/configure` page · `server.js` local server · `api/index.js` Vercel 
   persist it (in-memory `tokenCache` in `addon.js`; state file in `traktSync.js`).
 - **Trakt requests need a `User-Agent`** (Cloudflare 403s without one) plus `trakt-api-version`
   and `trakt-api-key`. Sync uses the headless device-code flow.
+- **`populate-watchlist` requires `TARGET_WATCHLIST_ID`** env var (no hardcoded default).
+  Can also be overridden per-run with `--watchlist <uuid>`. Inserts into `watchlist_movies`
+  with `added_at = last_watched_at` to preserve watch-date order. `--clear` DELETEs all rows
+  for the watchlist before inserting. Titles missing a TMDB record are logged by name, type,
+  and TMDB id but do not abort the run.
 - **`user_watched` writes**: collapse to one row per `(media_type, media_id)`, insert with
   `on_conflict=user_id,media_id,media_type` + `Prefer: resolution=ignore-duplicates`. Sync is
   incremental (a `watched_at` cursor) and must stay safe to re-run. Trakt gives TMDB ids

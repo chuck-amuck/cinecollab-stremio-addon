@@ -2,7 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  traktHistoryToRows, dedupeAgainstExisting, newestWatchedAt, normalizeTraktToken
+  traktHistoryToRows, dedupeAgainstExisting, newestWatchedAt, normalizeTraktToken,
+  traktWatchedToWatchlistRows
 } = require('../traktSync');
 
 const UID = 'ee5cf772-5024-44ce-aa6e-245c72e28456';
@@ -94,4 +95,53 @@ test('normalizeTraktToken computes expires_at in ms from created_at + expires_in
   assert.equal(tok.expires_at, (1000 + 200) * 1000);
   assert.equal(tok.access_token, 'a');
   assert.equal(tok.refresh_token, 'r');
+});
+
+// ── traktWatchedToWatchlistRows ───────────────────────────────────────────
+
+const WATCHED_MOVIES = [
+  { plays: 2, last_watched_at: '2025-12-01T00:00:00.000Z', movie: { title: 'A', ids: { tmdb: 111, imdb: 'tt1' } } },
+  { plays: 1, last_watched_at: '2025-11-01T00:00:00.000Z', movie: { title: 'No TMDB', ids: { imdb: 'tt9' } } },
+];
+const WATCHED_SHOWS = [
+  { plays: 10, last_watched_at: '2025-12-05T00:00:00.000Z', show: { title: 'Show X', ids: { tmdb: 1399 } } },
+  { plays: 3,  last_watched_at: '2025-11-10T00:00:00.000Z', show: { title: 'No id',  ids: {} } },
+];
+
+test('traktWatchedToWatchlistRows maps movies to { tmdbId, mediaType, watchedAt, traktTitle }', () => {
+  const rows = traktWatchedToWatchlistRows(WATCHED_MOVIES, []);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0], { tmdbId: 111, mediaType: 'movie', watchedAt: '2025-12-01T00:00:00.000Z', traktTitle: 'A' });
+});
+
+test('traktWatchedToWatchlistRows maps shows to { tmdbId, mediaType, watchedAt, traktTitle }', () => {
+  const rows = traktWatchedToWatchlistRows([], WATCHED_SHOWS);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0], { tmdbId: 1399, mediaType: 'tv', watchedAt: '2025-12-05T00:00:00.000Z', traktTitle: 'Show X' });
+});
+
+test('traktWatchedToWatchlistRows handles movies and shows together', () => {
+  const rows = traktWatchedToWatchlistRows(WATCHED_MOVIES, WATCHED_SHOWS);
+  assert.equal(rows.length, 2);
+  assert.equal(rows.filter(r => r.mediaType === 'movie').length, 1);
+  assert.equal(rows.filter(r => r.mediaType === 'tv').length, 1);
+});
+
+test('traktWatchedToWatchlistRows skips entries without a TMDB id', () => {
+  const rows = traktWatchedToWatchlistRows(WATCHED_MOVIES, WATCHED_SHOWS);
+  assert.ok(rows.every(r => r.tmdbId !== undefined && r.tmdbId !== null));
+});
+
+test('traktWatchedToWatchlistRows returns empty array for empty inputs', () => {
+  assert.deepEqual(traktWatchedToWatchlistRows([], []), []);
+  assert.deepEqual(traktWatchedToWatchlistRows(null, null), []);
+});
+
+test('traktWatchedToWatchlistRows preserves last_watched_at as watchedAt', () => {
+  const rows = traktWatchedToWatchlistRows([
+    { last_watched_at: '2025-01-10T00:00:00.000Z', movie: { ids: { tmdb: 1 } } },
+    { last_watched_at: '2025-06-20T00:00:00.000Z', movie: { ids: { tmdb: 2 } } },
+  ], []);
+  assert.equal(rows[0].watchedAt, '2025-01-10T00:00:00.000Z');
+  assert.equal(rows[1].watchedAt, '2025-06-20T00:00:00.000Z');
 });

@@ -201,6 +201,28 @@ The sync is **incremental** (tracks a `watched_at` cursor) and **idempotent** (d
 against titles already recorded in CineCollab), so re-running is always safe. State lives
 in `.trakt-sync-state.json` (gitignored).
 
+### Populate a watchlist from your Trakt history
+
+In addition to syncing watched state, you can bulk-populate a CineCollab watchlist with
+everything you've watched on Trakt — movies and TV shows — sorted by watch date so the
+list reflects your actual viewing timeline.
+
+1. Set `TARGET_WATCHLIST_ID` in your `.env` to the UUID of the CineCollab watchlist you
+   want to populate (find it in the CineCollab URL, e.g. `.../watchlists/<uuid>`).
+2. Run:
+
+   ```bash
+   npm run watchlist               # add anything not already in the list
+   npm run watchlist -- --clear    # wipe the list first, then re-populate
+   npm run watchlist -- --movies-only   # skip TV shows
+   npm run watchlist -- --shows-only    # skip movies
+   npm run watchlist -- --watchlist <uuid>  # override TARGET_WATCHLIST_ID for this run
+   ```
+
+Items are inserted in watch-date order (`last_watched_at` → `added_at`), so your watchlist
+displays them oldest-to-newest watched. Titles with no TMDB record are logged by name so
+you can investigate them manually.
+
 ### Sync env vars
 
 | Variable | Default | Purpose |
@@ -211,6 +233,7 @@ in `.trakt-sync-state.json` (gitignored).
 | `SYNC_SHOWS` | `false` | `true` also marks watched **TV shows** (title-level) from episode history |
 | `SYNC_INTERVAL_MS` | `900000` | Poll interval for `sync:watch` (15 min) |
 | `SYNC_STATE_FILE` | `.trakt-sync-state.json` | Where the Trakt token + cursor are stored |
+| `TARGET_WATCHLIST_ID` | _unset_ | **Required for `npm run watchlist`.** UUID of the CineCollab watchlist to populate from your Trakt history. Can also be overridden per-run with `--watchlist <uuid>`. |
 
 > **Notes.** Trakt returns TMDB ids, which CineCollab stores natively — no id conversion
 > needed on this path. Marking a TV show watched is **title-level** (one `user_watched`
@@ -245,7 +268,7 @@ in `.trakt-sync-state.json` (gitignored).
 addon.js      Core logic: fetch lists, auth, TMDB→IMDB, build manifest/catalog/meta/discover
 handler.js    HTTP routing + configure page + auth endpoints
 server.js     Local Node server  (node server.js)
-traktSync.js  Trakt → CineCollab watched-state sync (CLI: login/run/watch/status)
+traktSync.js  Trakt → CineCollab watched-state sync + watchlist populate (CLI: login/run/watch/status/populate-watchlist)
 api/index.js  Vercel serverless entry
 vercel.json   Vercel routing
 ```

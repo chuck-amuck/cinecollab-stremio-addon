@@ -8,6 +8,7 @@
     "sync": "node traktSync.js run",
     "sync:login": "node traktSync.js login",
     "sync:watch": "node traktSync.js watch",
+    "watchlist": "node traktSync.js populate-watchlist",
     "test": "node --test test/parseConfig.test.js test/crypto.test.js test/crypto-nosecret.test.js test/extras.test.js test/builders.test.js test/handler.test.js test/traktSync.test.js"
   },
   "engines": {
