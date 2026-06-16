@@ -1,5 +1,9 @@
 # CineCollab → Stremio / Nuvio
 
+**[→ Open the hosted addon](https://cinecollab-stremio-addon.vercel.app/)**
+
+![CineCollab Stremio addon configure page](preview.png)
+
 Imports CineCollab watchlists into Stremio or Nuvio as live catalogs.
 Each title resolves to its IMDB id, so your installed stream addons match every movie.
 
