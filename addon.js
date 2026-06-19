@@ -169,23 +169,41 @@ async function getAccessToken(originalRT) {
 }
 
 // ---- Config parsing -------------------------------------------------------
-// Returns { authBlob: string|null, ids: string[], discover: boolean }
+// Returns { authBlob: string|null, ids: string[], discover: boolean, only: string[]|null }
 // authBlob is the raw `a_…` token string (without the `a_` prefix).
 // ids are manually-specified watchlist UUIDs.
 // discover is true when the `d_on` token is present.
+// only is the allow-list from an `o_<uuid.uuid…>` token, or null (auto-discover all).
 const UUID_RE     = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const AUTH_RE     = /(?:^|,)a_([A-Za-z0-9_-]+)/;
+const AUTH_RE     = /(?:^|,)(a_[A-Za-z0-9_-]+)/g;
+const ONLY_RE     = /(?:^|,)(o_[A-Za-z0-9_.-]+)/g;
 const DISCOVER_RE = /(?:^|,)d_on(?:,|$)/;
 
 function parseConfig(seg) {
-  if (!seg) return { authBlob: null, ids: [], discover: false };
+  if (!seg) return { authBlob: null, ids: [], discover: false, only: null };
   const s = decodeURIComponent(seg);
-  const authMatch = s.match(AUTH_RE);
-  const authBlob  = authMatch ? authMatch[1] : null;
-  const found     = s.match(UUID_RE) || [];
-  const ids       = [...new Set(found.map(x => x.toLowerCase()))];
-  const discover  = DISCOVER_RE.test(s);
-  return { authBlob, ids, discover };
+
+  const authMatch = AUTH_RE.exec(s);
+  AUTH_RE.lastIndex = 0;
+  const authBlob = authMatch ? authMatch[1].slice(2) : null; // strip 'a_'
+
+  const onlyMatch = ONLY_RE.exec(s);
+  ONLY_RE.lastIndex = 0;
+  let only = null;
+  if (onlyMatch) {
+    const raw = onlyMatch[1].slice(2); // strip 'o_'
+    const found = raw.match(UUID_RE) || [];
+    only = [...new Set(found.map(x => x.toLowerCase()))];
+  }
+
+  // Strip a_ and o_ tokens before scanning for manual UUIDs so their embedded
+  // UUIDs don't pollute the ids list.
+  const stripped = s.replace(/(?:^|,)(?:a_[A-Za-z0-9_-]+|o_[A-Za-z0-9_.-]+)/g, '');
+  const found    = stripped.match(UUID_RE) || [];
+  const ids      = [...new Set(found.map(x => x.toLowerCase()))];
+
+  const discover = DISCOVER_RE.test(s);
+  return { authBlob, ids, discover, only };
 }
 
 // Resolves an authBlob to { accessToken, uid } or null.
@@ -432,6 +450,7 @@ async function buildManifest(parsed, auth) {
   let discoveredIds = [];
   if (auth) {
     discoveredIds = await discoverWatchlists(auth.accessToken, auth.uid).catch(() => []);
+    if (parsed.only) discoveredIds = discoveredIds.filter(id => parsed.only.includes(id));
   }
   const allIds = [...new Set([...discoveredIds, ...manualIds])];
 
