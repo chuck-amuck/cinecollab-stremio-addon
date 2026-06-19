@@ -106,6 +106,11 @@ function configurePage(prefill) {
   .spinner{display:inline-block;width:16px;height:16px;border:2px solid #6d5efc;
            border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
   @keyframes spin{to{transform:rotate(360deg)}}
+  .expand-btn{display:flex;align-items:center;justify-content:space-between;text-align:left;
+              padding:12px 16px;font-size:15px;font-weight:600;color:#c5cad8;background:#1e2330;
+              border:1px solid #262b38;border-radius:10px;margin-top:4px}
+  .expand-btn:hover{background:#252b3b}
+  .expand-btn svg{flex-shrink:0;transition:transform .2s}
 </style></head><body>
 <div class="card">
   <h1>CineCollab → Stremio / Nuvio</h1>
@@ -116,11 +121,10 @@ function configurePage(prefill) {
      Each becomes its own catalog row.</p>
   <textarea id="src" placeholder="https://www.cinecollab.app/watchlists/…&#10;https://www.cinecollab.app/watchlists/…">${value}</textarea>
   <p class="hint" id="count"></p>
-  <label style="display:flex;align-items:center;gap:8px;margin:8px 0 12px;cursor:pointer;font-size:14px;color:#9aa3b2">
+  <label style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;cursor:pointer;font-size:14px;color:#9aa3b2">
     <input type="checkbox" id="discoverToggle" checked style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
     Include Discover catalog (CineCollab featured lists)
   </label>
-  <button onclick="gen()">Generate install link</button>
 
   <!-- ── Section 2: Browse another user's lists ─────────────────── -->
   <hr class="divider">
@@ -143,19 +147,25 @@ function configurePage(prefill) {
   <!-- ── Section 3: Connect your account ─────────────────────────── -->
   <hr class="divider">
   ${hasSecret ? `
-  <h2>Connect your CineCollab account</h2>
-  <p>Log in to auto-discover all your watchlists — public, members-only, and private.
-     Your credentials are never stored; only an encrypted token is embedded in the install URL.</p>
-  <div id="loginForm">
-    <input id="email" type="email" placeholder="Email" autocomplete="username">
-    <input id="pass"  type="password" placeholder="Password" autocomplete="current-password" style="margin-top:6px">
-    <p class="err" id="loginErr"></p>
-    <button style="margin-top:10px" onclick="doLogin()">Sign in with email</button>
-  </div>
-  <div id="accountLists" style="display:none">
-    <p style="margin:0 0 8px;font-size:13px;color:#9aa3b2">Your watchlists — uncheck any to exclude:</p>
-    <div class="checklist" id="accountChecklist"></div>
-    <button style="margin-top:10px" onclick="genAccount()">Generate account install link</button>
+  <button class="expand-btn" id="accountToggle" onclick="toggleAccount()">
+    <span>Connect your CineCollab account</span>
+    <svg id="accountChevron" width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M4 6l4 4 4-4" stroke="#9aa3b2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+  <div id="accountSection" style="display:none;margin-top:10px">
+    <p style="margin:0 0 10px">Log in to auto-discover all your watchlists — public, members-only, and private.
+       Your credentials are never stored; only an encrypted token is embedded in the install URL.</p>
+    <div id="loginForm">
+      <input id="email" type="email" placeholder="Email" autocomplete="username">
+      <input id="pass"  type="password" placeholder="Password" autocomplete="current-password" style="margin-top:6px">
+      <p class="err" id="loginErr"></p>
+      <button style="margin-top:10px" onclick="doLogin()">Sign in with email</button>
+    </div>
+    <div id="accountLists" style="display:none">
+      <p style="margin:0 0 8px;font-size:13px;color:#9aa3b2">Your watchlists — uncheck any to exclude:</p>
+      <div class="checklist" id="accountChecklist"></div>
+    </div>
   </div>
   ` : `
   <h2>Connect your CineCollab account</h2>
@@ -189,24 +199,52 @@ function refresh(){
   document.getElementById('count').textContent=n?(n+' watchlist'+(n>1?'s':'')+' detected'):'';
 }
 
-function showInstall(segment){
+function showInstall(segment,scroll){
   var base=location.origin+'/'+segment;
   var manifest=base+'/manifest.json';
   document.getElementById('manifest').textContent=manifest;
   document.getElementById('install').href='stremio://'+manifest.replace(/^https?:\\/\\//,'');
   document.getElementById('out').style.display='block';
   window._m=manifest;
-  document.getElementById('out').scrollIntoView({behavior:'smooth',block:'nearest'});
+  if(scroll)document.getElementById('out').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
-// ── public UUID flow ──────────────────────────────────────────────
+// ── segment builders ─────────────────────────────────────────────
 function withDiscover(seg){
   return document.getElementById('discoverToggle').checked ? 'd_on,'+seg : seg;
 }
-function gen(){
-  var list=srcUuids();
-  if(!list.length){return;}
-  showInstall(withDiscover(list.join(',')));
+function accountSegment(extra){
+  var boxes=[].slice.call(document.querySelectorAll('#accountChecklist input[type=checkbox]'));
+  var checked=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});
+  var parts=[];
+  if(!_accountListIds.length||checked.length===_accountListIds.length){
+    parts.push(_accountSegment);
+  } else if(checked.length){
+    parts.push(_accountSegment,'o_'+checked.join('.'));
+  }
+  parts=parts.concat(extra);
+  return parts.length?withDiscover(parts.join(',')):null;
+}
+function currentSegment(){
+  var extra=srcUuids();
+  // include checked profile list items while the lookup result panel is visible
+  var profVisible=document.getElementById('profileResult').style.display!=='none';
+  if(profVisible){
+    var profIds=[].slice.call(document.querySelectorAll('#profileLists input[type=checkbox]:checked'))
+      .map(function(b){return b.value;})
+      .filter(function(id){return extra.indexOf(id)===-1;});
+    extra=extra.concat(profIds);
+  }
+  if(_accountSegment) return accountSegment(extra);
+  if(extra.length) return withDiscover(extra.join(','));
+  if(document.getElementById('discoverToggle').checked) return 'd_on';
+  return null;
+}
+function update(){
+  refresh();
+  var seg=currentSegment();
+  if(seg) showInstall(seg);
+  else document.getElementById('out').style.display='none';
 }
 
 // ── user profile lookup ───────────────────────────────────────────
@@ -252,6 +290,8 @@ function lookupUser(){
         listEl.appendChild(item);
       });
       resultEl.style.display='block';
+      listEl.addEventListener('change',update);
+      update();
     })
     .catch(function(){
       document.getElementById('profileInput').disabled=false;
@@ -269,13 +309,23 @@ function addCheckedUserLists(){
   if(toAdd.length){
     ta.value=(ta.value.trim()?ta.value.trim()+'\\n':'')+toAdd.join('\\n');
   }
-  refresh();
+  update();
+  document.getElementById('out').scrollIntoView({behavior:'smooth',block:'nearest'});
   document.getElementById('profileResult').style.display='none';
   document.getElementById('profileInput').value='';
 }
 
+// ── account section toggle ────────────────────────────────────────
+function toggleAccount(){
+  var s=document.getElementById('accountSection');
+  var open=s.style.display==='none';
+  s.style.display=open?'block':'none';
+  document.getElementById('accountChevron').style.transform=open?'rotate(180deg)':'';
+}
+
 // ── account login flow ────────────────────────────────────────────
 var _accountSegment=null;
+var _accountListIds=[];
 function doLogin(){
   var email=document.getElementById('email').value.trim();
   var pass=document.getElementById('pass').value;
@@ -288,7 +338,10 @@ function doLogin(){
     .then(function(res){
       if(!res.ok){errEl.textContent=res.d.error||'Login failed.';errEl.style.display='block';return;}
       _accountSegment=res.d.segment;
+      _accountListIds=(res.d.lists||[]).map(function(l){return l.id;});
       showAccountLists(res.d.lists);
+      update();
+      document.getElementById('out').scrollIntoView({behavior:'smooth',block:'nearest'});
     })
     .catch(function(){errEl.textContent='Request failed.';errEl.style.display='block';});
 }
@@ -306,22 +359,17 @@ function showAccountLists(lists){
       +'<span class="badge">'+vis+'</span>';
     cl.appendChild(item);
   });
+  cl.addEventListener('change',update);
   document.getElementById('loginForm').style.display='none';
   document.getElementById('accountLists').style.display='block';
-}
-function genAccount(){
-  if(!_accountSegment)return;
-  var extra=srcUuids();
-  var seg=extra.length?_accountSegment+','+extra.join(','):_accountSegment;
-  showInstall(withDiscover(seg));
 }
 
 // ── helpers ───────────────────────────────────────────────────────
 function copyM(){navigator.clipboard.writeText(window._m);}
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-document.getElementById('src').addEventListener('input',refresh);
-refresh();
-${value ? 'gen();' : ''}
+document.getElementById('src').addEventListener('input',update);
+document.getElementById('discoverToggle').addEventListener('change',update);
+update();
 </script></body></html>`;
 }
 
@@ -435,7 +483,8 @@ async function handler(req, res) {
       // For cc: ids we need all ids (discovered + manual)
       let allIds = parsed.ids;
       if (auth) {
-        const discovered = await addon.discoverWatchlists(auth.accessToken, auth.uid).catch(() => []);
+        let discovered = await addon.discoverWatchlists(auth.accessToken, auth.uid).catch(() => []);
+        if (parsed.only) discovered = discovered.filter(id => parsed.only.includes(id));
         allIds = [...new Set([...discovered, ...parsed.ids])];
       }
       const meta = await addon.buildMeta(allIds, type, idRaw, auth && auth.accessToken);
