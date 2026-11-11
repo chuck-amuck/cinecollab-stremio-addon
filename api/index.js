@@ -32,6 +32,15 @@ function originalUrl(reqUrl) {
 }
 
 module.exports = function (req, res) {
+  // TEMPORARY diagnostic (remove once routing is confirmed): with request header
+  // x-cc-debug: 1, report what Vercel handed this function.
+  if (req.headers['x-cc-debug'] === '1') {
+    const h = {};
+    for (const k of Object.keys(req.headers)) {
+      if (/^(x-matched-path|x-now-route-matches|x-vercel-[a-z-]*path[a-z-]*|x-forwarded-(uri|path|prefix)|x-original-[a-z-]*|x-invoke-[a-z-]*)$/.test(k)) h[k] = req.headers[k];
+    }
+    res.setHeader('x-cc-seen', JSON.stringify({ url: req.url, headers: h, names: Object.keys(req.headers).filter(k => k.startsWith('x-')) }));
+  }
   req.url = originalUrl(req.url || '/');
   return handler(req, res);
 };
