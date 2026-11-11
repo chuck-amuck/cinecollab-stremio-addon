@@ -377,9 +377,11 @@ update();
 // vercel.json rewrites every path to /api/index?__path=/<original path>. Vercel
 // hands the app the rewritten URL, not the one the client asked for (a June
 // 2026 build of this code worked; the same code built on 2026-11-10 saw every
-// addon URL as /api/index and answered 404). Vercel may run this handler
-// through api/index.js or straight through server.js, so the URL is restored
-// here, where both paths meet. Without the rewrite (node server.js) it is a no-op.
+// addon URL as /api/index and answered 404). Seen live on 2026-11-11: Vercel
+// runs the app through server.js (package.json start), not api/index.js, and
+// passes /api/index?<original query>&__path=<encoded path>; "/" isn't
+// rewritten. The URL is restored here, where every entry path meets. Without
+// the rewrite (plain node server.js) this is a no-op.
 function originalUrl(reqUrl) {
   const q = reqUrl.indexOf('?');
   if (q < 0) return reqUrl;
@@ -404,11 +406,6 @@ function originalUrl(reqUrl) {
 
 // ---- main handler -------------------------------------------------------
 async function handler(req, res) {
-  // TEMPORARY diagnostic (remove once routing is confirmed): with request header
-  // x-cc-debug: 1, report the URL this handler was given.
-  if (req.headers && req.headers['x-cc-debug'] === '1') {
-    res.setHeader('x-cc-seen', JSON.stringify({ url: req.url, matched: req.headers['x-matched-path'] || null }));
-  }
   req.url = originalUrl(req.url || '/');
   try {
     if (req.method === 'OPTIONS') return send(res, 204, '');
