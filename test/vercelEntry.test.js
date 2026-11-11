@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { originalUrl } = require('../api/index');
+const { originalUrl } = require('../handler');
 
 // vercel.json rewrites every path to /api/index?__path=/<path>; originalUrl
 // must give the handler back the URL the client asked for.

@@ -373,8 +373,43 @@ update();
 </script></body></html>`;
 }
 
+// ---- Vercel rewrite ------------------------------------------------------
+// vercel.json rewrites every path to /api/index?__path=/<original path>. Vercel
+// hands the app the rewritten URL, not the one the client asked for (a June
+// 2026 build of this code worked; the same code built on 2026-11-10 saw every
+// addon URL as /api/index and answered 404). Vercel may run this handler
+// through api/index.js or straight through server.js, so the URL is restored
+// here, where both paths meet. Without the rewrite (node server.js) it is a no-op.
+function originalUrl(reqUrl) {
+  const q = reqUrl.indexOf('?');
+  if (q < 0) return reqUrl;
+  const parts = reqUrl.slice(q + 1).split('&');
+  const at = parts.findIndex(p => p === '__path' || p.startsWith('__path='));
+  if (at < 0) return reqUrl;
+
+  let path = parts[at].slice('__path='.length) || '/';
+  // An encoded path has no literal '/' after the leading one we add ourselves.
+  if (!path.slice(1).includes('/') && /%2F/i.test(path)) path = decodeURIComponent(path);
+  if (!path.startsWith('/')) path = '/' + path;
+
+  const rest = parts.filter((_, i) => i !== at && parts[i] !== '');
+  // Stremio puts catalog extras in the last path segment ("genre=X&skip=20.json")
+  // and never sends a query string. If the path went into the query unencoded,
+  // its '&' split those extras off into separate parameters: join them back.
+  if (rest.length && /\/catalog\//.test(path) && !path.endsWith('.json')) {
+    return path + '&' + rest.join('&');
+  }
+  return rest.length ? path + '?' + rest.join('&') : path;
+}
+
 // ---- main handler -------------------------------------------------------
 async function handler(req, res) {
+  // TEMPORARY diagnostic (remove once routing is confirmed): with request header
+  // x-cc-debug: 1, report the URL this handler was given.
+  if (req.headers && req.headers['x-cc-debug'] === '1') {
+    res.setHeader('x-cc-seen', JSON.stringify({ url: req.url, matched: req.headers['x-matched-path'] || null }));
+  }
+  req.url = originalUrl(req.url || '/');
   try {
     if (req.method === 'OPTIONS') return send(res, 204, '');
 
@@ -498,4 +533,5 @@ async function handler(req, res) {
 }
 
 handler.parseExtras = parseExtras;
+handler.originalUrl = originalUrl;
 module.exports = handler;
