@@ -18,7 +18,7 @@ this change the deploy contract becomes:
 > **Publish a GitHub Release → production deploys.** Pushing to `main` no longer touches
 > production; branch/PR **preview** deploys keep working as before.
 
-This also aligns deploys with the version discipline in [AGENTS.md](AGENTS.md): the moment you
+This also aligns deploys with the version discipline in [CLAUDE.md](CLAUDE.md): the moment you
 cut a release is the same moment the lockstep `package.json` / manifest version bump goes live.
 
 ### How it works
